@@ -1,0 +1,52 @@
+stages:
+  - build-image-deploy
+  - update-charts
+  - notify
+
+# 定义每个子项目的构建和打包作业
+# digital-twin-service项目构建静象
+portal-web-image-job:
+  stage: build-image-deploy
+  script:
+    - TAG="${CI_COMMIT_REF_NAME}-$(date +'%Y%m%d')-${CI_COMMIT_SHORT_SHA}"
+    - docker build --network host  -t 192.168.180.5:31104/xinmeta-portal/web:$TAG .
+    - echo "docker push......"
+    - docker login -u admin -p '3m5cLw$64EIO2z+r@' 192.168.180.5:31104
+    - docker push 192.168.180.5:31104/xinmeta-portal/web:$TAG
+    - docker rmi 192.168.180.5:31104/xinmeta-portal/web:$TAG
+  only:
+    refs:
+      - main
+    changes:
+      - "dist/**/*"  # 只在dist/**/* 目录下的文件被修改时触发构建
+
+portal-web-chart-job:
+  stage: update-charts
+  script:
+    - TAG="${CI_COMMIT_REF_NAME}-$(date +'%Y%m%d')-${CI_COMMIT_SHORT_SHA}"
+    - 'rm -rf digital-twin || true'  # This ensures that no error occurs if the directory doesn't exist.
+    - 'git clone -b master git@gitlab_ssh:xinmeta/charts/portal.git'
+    - 'cd portal/web'
+    # Ensure values.yaml exists in the cloned repository's root.
+    - 'sed -i "s/^  tag:.*/  tag: \"$TAG\"/g" values.yaml'
+    - 'git config user.email "your_email@example.com"'
+    - 'git config user.name "root"'
+    # 添加变化到暂存区
+    - 'git add values.yaml'
+    - 'git diff-index --quiet HEAD || git commit -m "Update portal-web image.tag to $TAG"'
+    # Replace 'master' with the name of the branch you wish to push to, if necessary.
+    - 'git push --set-upstream origin master'
+  only:
+    refs:
+      - main
+    changes:
+      - "dist/**/*"  # 只在 dist/**/* 目录下的文件被修改时触发构建
+
+notify_commit_message:
+  stage: notify
+  script:
+    - COMMIT_MESSAGE=$(echo "$CI_COMMIT_MESSAGE" | cut -c 1-10)
+    - |
+      curl https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=0082a1ba-9d6e-47fe-9edc-2c5c223200a0 -H "Content-Type: application/json" -d '{"msgtype": "text","text": {"content": "鑫Meta-门户前端构建完"}}'
+  only:
+    - main
